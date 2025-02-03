@@ -16,11 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-
-interface EventCreationCardProps {
-  onSubmit?: (data: EventFormData) => void;
-  initialData?: EventFormData;
-}
+import { useEvent } from "@/context/EventContext";
+import { toast } from "./ui/use-toast";
 
 interface EventFormData {
   title: string;
@@ -31,20 +28,39 @@ interface EventFormData {
   type: string;
 }
 
-const defaultFormData: EventFormData = {
-  title: "",
-  date: new Date(),
-  location: "",
-  description: "",
-  theme: "modern",
-  type: "corporate",
-};
+const EventCreationCard: React.FC = () => {
+  const { createEvent, loading } = useEvent();
+  const [formData, setFormData] = React.useState<EventFormData>({
+    title: "",
+    date: new Date(),
+    location: "",
+    description: "",
+    theme: "modern",
+    type: "corporate",
+  });
 
-const EventCreationCard: React.FC<EventCreationCardProps> = ({
-  onSubmit = () => {},
-  initialData = defaultFormData,
-}) => {
-  const [date, setDate] = React.useState<Date>(initialData.date);
+  const handleSubmit = async () => {
+    try {
+      await createEvent({
+        ...formData,
+        date: formData.date.toISOString(),
+      });
+      toast({
+        title: "Success",
+        description: "Event created successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleInputChange = (field: keyof EventFormData, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
 
   return (
     <Card className="w-[800px] bg-white shadow-lg">
@@ -59,7 +75,8 @@ const EventCreationCard: React.FC<EventCreationCardProps> = ({
           <Input
             id="title"
             placeholder="Enter event title"
-            defaultValue={initialData.title}
+            value={formData.title}
+            onChange={(e) => handleInputChange("title", e.target.value)}
           />
         </div>
 
@@ -72,18 +89,22 @@ const EventCreationCard: React.FC<EventCreationCardProps> = ({
                   variant="outline"
                   className={cn(
                     "w-full justify-start text-left font-normal",
-                    !date && "text-muted-foreground",
+                    !formData.date && "text-muted-foreground",
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date ? format(date, "PPP") : <span>Pick a date</span>}
+                  {formData.date ? (
+                    format(formData.date, "PPP")
+                  ) : (
+                    <span>Pick a date</span>
+                  )}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
                 <Calendar
                   mode="single"
-                  selected={date}
-                  onSelect={setDate}
+                  selected={formData.date}
+                  onSelect={(date) => handleInputChange("date", date)}
                   initialFocus
                 />
               </PopoverContent>
@@ -95,7 +116,8 @@ const EventCreationCard: React.FC<EventCreationCardProps> = ({
             <Input
               id="location"
               placeholder="Enter event location"
-              defaultValue={initialData.location}
+              value={formData.location}
+              onChange={(e) => handleInputChange("location", e.target.value)}
             />
           </div>
         </div>
@@ -103,7 +125,10 @@ const EventCreationCard: React.FC<EventCreationCardProps> = ({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Event Type</Label>
-            <Select defaultValue={initialData.type}>
+            <Select
+              value={formData.type}
+              onValueChange={(value) => handleInputChange("type", value)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select event type" />
               </SelectTrigger>
@@ -118,7 +143,10 @@ const EventCreationCard: React.FC<EventCreationCardProps> = ({
 
           <div className="space-y-2">
             <Label>Theme</Label>
-            <Select defaultValue={initialData.theme}>
+            <Select
+              value={formData.theme}
+              onValueChange={(value) => handleInputChange("theme", value)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>
@@ -138,14 +166,29 @@ const EventCreationCard: React.FC<EventCreationCardProps> = ({
             id="description"
             placeholder="Enter event description"
             className="min-h-[100px]"
-            defaultValue={initialData.description}
+            value={formData.description}
+            onChange={(e) => handleInputChange("description", e.target.value)}
           />
         </div>
 
         <div className="flex justify-end space-x-2">
-          <Button variant="outline">Cancel</Button>
-          <Button onClick={() => onSubmit(defaultFormData)}>
-            Create Event
+          <Button
+            variant="outline"
+            onClick={() =>
+              setFormData({
+                title: "",
+                date: new Date(),
+                location: "",
+                description: "",
+                theme: "modern",
+                type: "corporate",
+              })
+            }
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading ? "Creating..." : "Create Event"}
           </Button>
         </div>
       </CardContent>

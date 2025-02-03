@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Progress } from "./ui/progress";
 import { Separator } from "./ui/separator";
@@ -16,70 +16,19 @@ import {
   Receipt,
   CreditCard,
 } from "lucide-react";
+import { useEvent } from "@/context/EventContext";
+import { useEvents } from "@/hooks/useEvents";
+import { toast } from "./ui/use-toast";
 
-interface Transaction {
-  id: string;
-  date: string;
-  description: string;
-  amount: number;
-  type: "deposit" | "payment" | "refund";
-  category: string;
-  status: "pending" | "completed" | "failed";
-}
+const categoryColors = {
+  Venue: "bg-blue-500",
+  Catering: "bg-green-500",
+  Decoration: "bg-purple-500",
+  Entertainment: "bg-yellow-500",
+  Other: "bg-gray-500",
+};
 
-interface ExpenseCategory {
-  name: string;
-  amount: number;
-  budget: number;
-  color: string;
-}
-
-interface BudgetTrackerProps {
-  totalBudget?: number;
-  spentAmount?: number;
-  categories?: ExpenseCategory[];
-  transactions?: Transaction[];
-  onAddTransaction?: (transaction: Partial<Transaction>) => void;
-}
-
-const defaultCategories: ExpenseCategory[] = [
-  { name: "Venue", amount: 5000, budget: 6000, color: "bg-blue-500" },
-  { name: "Catering", amount: 3000, budget: 4000, color: "bg-green-500" },
-  { name: "Decoration", amount: 1500, budget: 2000, color: "bg-purple-500" },
-  { name: "Entertainment", amount: 2000, budget: 3000, color: "bg-yellow-500" },
-];
-
-const defaultTransactions: Transaction[] = [
-  {
-    id: "1",
-    date: "2024-03-15",
-    description: "Venue Deposit",
-    amount: 2000,
-    type: "payment",
-    category: "Venue",
-    status: "completed",
-  },
-  {
-    id: "2",
-    date: "2024-03-14",
-    description: "Initial Budget",
-    amount: 15000,
-    type: "deposit",
-    category: "Budget",
-    status: "completed",
-  },
-  {
-    id: "3",
-    date: "2024-03-13",
-    description: "Catering Refund",
-    amount: 500,
-    type: "refund",
-    category: "Catering",
-    status: "completed",
-  },
-];
-
-const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
+const TransactionCard = ({ transaction }) => {
   const typeColors = {
     deposit: "text-green-500",
     payment: "text-red-500",
@@ -108,7 +57,9 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
         </div>
         <div>
           <p className="font-medium">{transaction.description}</p>
-          <p className="text-sm text-muted-foreground">{transaction.date}</p>
+          <p className="text-sm text-muted-foreground">
+            {new Date(transaction.created_at).toLocaleDateString()}
+          </p>
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -117,21 +68,83 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
         </Badge>
         <span className={`font-medium ${typeColors[transaction.type]}`}>
           {transaction.type === "payment" ? "-" : "+"}$
-          {transaction.amount.toLocaleString()}
+          {Number(transaction.amount).toLocaleString()}
         </span>
       </div>
     </div>
   );
 };
 
-const BudgetTracker: React.FC<BudgetTrackerProps> = ({
-  totalBudget = 15000,
-  spentAmount = 11500,
-  categories = defaultCategories,
-  transactions = defaultTransactions,
-  onAddTransaction = () => {},
-}) => {
-  const progress = (spentAmount / totalBudget) * 100;
+const BudgetTracker = () => {
+  const { currentEvent } = useEvent();
+  const { budgetItems, createBudgetItem, loading } = useEvents(
+    currentEvent?.id,
+  );
+
+  const { totalBudget, spentAmount, categoryBreakdown } = useMemo(() => {
+    const deposits = budgetItems
+      .filter((item) => item.type === "deposit")
+      .reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const payments = budgetItems
+      .filter((item) => item.type === "payment")
+      .reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const refunds = budgetItems
+      .filter((item) => item.type === "refund")
+      .reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const categoryTotals = budgetItems
+      .filter((item) => item.type === "payment")
+      .reduce((acc, item) => {
+        acc[item.category] = (acc[item.category] || 0) + Number(item.amount);
+        return acc;
+      }, {});
+
+    return {
+      totalBudget: deposits,
+      spentAmount: payments - refunds,
+      categoryBreakdown: Object.entries(categoryTotals).map(
+        ([name, amount]) => ({
+          name,
+          amount,
+          color: categoryColors[name] || categoryColors.Other,
+        }),
+      ),
+    };
+  }, [budgetItems]);
+
+  const progress = totalBudget > 0 ? (spentAmount / totalBudget) * 100 : 0;
+
+  const handleAddTransaction = async () => {
+    if (!currentEvent) return;
+    try {
+      await createBudgetItem({
+        description: "New Transaction",
+        amount: 0,
+        type: "payment",
+        category: "Other",
+        status: "pending",
+        event_id: currentEvent.id,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (!currentEvent) {
+    return (
+      <div className="flex items-center justify-center h-[400px]">
+        <p className="text-muted-foreground">
+          Please create or select an event first
+        </p>
+      </div>
+    );
+  }
 
   return (
     <Card className="w-[350px] bg-white shadow-lg">
@@ -141,7 +154,12 @@ const BudgetTracker: React.FC<BudgetTrackerProps> = ({
             <DollarSign className="h-5 w-5" />
             Budget Tracker
           </CardTitle>
-          <Button variant="outline" size="icon">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleAddTransaction}
+            disabled={loading}
+          >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
@@ -190,21 +208,16 @@ const BudgetTracker: React.FC<BudgetTrackerProps> = ({
                 <h3 className="font-semibold">Expense Breakdown</h3>
               </div>
               <div className="space-y-3">
-                {categories.map((category, index) => (
+                {categoryBreakdown.map((category, index) => (
                   <div key={index} className="space-y-1">
                     <div className="flex justify-between text-sm">
                       <span>{category.name}</span>
-                      <div className="text-right">
-                        <span className="font-medium">
-                          ${category.amount.toLocaleString()}
-                        </span>
-                        <span className="text-muted-foreground ml-1">
-                          / ${category.budget.toLocaleString()}
-                        </span>
-                      </div>
+                      <span className="font-medium">
+                        ${category.amount.toLocaleString()}
+                      </span>
                     </div>
                     <Progress
-                      value={(category.amount / category.budget) * 100}
+                      value={(category.amount / spentAmount) * 100}
                       className={`h-2 ${category.color}`}
                     />
                   </div>
@@ -215,7 +228,9 @@ const BudgetTracker: React.FC<BudgetTrackerProps> = ({
             {/* Trend Indicator */}
             <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-3">
               <TrendingUp className="h-5 w-5 text-green-500" />
-              <span className="text-sm">On track with budget</span>
+              <span className="text-sm">
+                {progress > 90 ? "Near budget limit" : "On track with budget"}
+              </span>
             </div>
           </TabsContent>
 
@@ -234,7 +249,7 @@ const BudgetTracker: React.FC<BudgetTrackerProps> = ({
               </div>
               <ScrollArea className="h-[300px]">
                 <div className="space-y-1">
-                  {transactions.map((transaction) => (
+                  {budgetItems.map((transaction) => (
                     <TransactionCard
                       key={transaction.id}
                       transaction={transaction}
